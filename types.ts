@@ -66,3 +66,10 @@ export interface Particle {
   color: string;
   size: number;
 }
+
+export interface CameraState {
+  x: number;
+  y: number;
+  zoom: number;
+  shake: number;
+}

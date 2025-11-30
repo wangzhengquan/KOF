@@ -2,14 +2,14 @@ import { ActionState } from './types';
 
 export const CANVAS_WIDTH = 800;
 export const CANVAS_HEIGHT = 450;
-export const GROUND_Y = 400; // Lower ground to give more vertical space
+export const GROUND_Y = 400; 
 export const GRAVITY = 0.6;
 export const FRICTION = 0.85;
-export const MOVE_SPEED = 6;
+export const MOVE_SPEED = 5; // Slightly slower for better animation feel
 export const JUMP_FORCE = -14;
 
-export const FIGHTER_WIDTH = 50;
-export const FIGHTER_HEIGHT = 100;
+export const FIGHTER_WIDTH = 60; // Slightly wider for new art style
+export const FIGHTER_HEIGHT = 110; // Taller
 
 export const P1_COLOR = '#ef4444'; 
 export const P2_COLOR = '#8b5cf6';
@@ -18,20 +18,20 @@ export const ATTACK_DATA = {
   [ActionState.ATTACK_LIGHT]: {
     damage: 12,
     startup: 5,
-    active: 10,
+    active: 8,
     recovery: 8,
-    width: 70, // Wider for visual impact
-    height: 30,
+    width: 80,
+    height: 35,
     yOffset: 30,
     color: '#fbbf24', 
   },
   [ActionState.ATTACK_HEAVY]: {
     damage: 25,
     startup: 12,
-    active: 15,
-    recovery: 20,
-    width: 90, // Wider
-    height: 50,
+    active: 12,
+    recovery: 22,
+    width: 110,
+    height: 60,
     yOffset: 35,
     color: '#f97316', 
   },

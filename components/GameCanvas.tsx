@@ -1,7 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import { 
   GameStatus, Fighter, ActionState, Direction, Box, Particle, 
-  FighterStats 
+  FighterStats, CameraState
 } from '../types';
 import { 
   CANVAS_WIDTH, CANVAS_HEIGHT, GROUND_Y, GRAVITY, FRICTION, 
@@ -23,7 +23,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ status, onGameOver, setHealth, 
   
   // Game State Refs
   const playerRef = useRef<Fighter>({
-    id: 1, name: 'Kyo-Clone', x: 100, y: GROUND_Y - FIGHTER_HEIGHT, vx: 0, vy: 0,
+    id: 1, name: 'Kyo', x: 150, y: GROUND_Y - FIGHTER_HEIGHT, vx: 0, vy: 0,
     hp: MAX_HP, maxHp: MAX_HP, energy: 0, maxEnergy: 100,
     direction: Direction.RIGHT, state: ActionState.IDLE, stateTimer: 0,
     hitbox: { x: 0, y: 0, width: FIGHTER_WIDTH, height: FIGHTER_HEIGHT },
@@ -31,12 +31,14 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ status, onGameOver, setHealth, 
   });
 
   const enemyRef = useRef<Fighter>({
-    id: 2, name: 'Iori-Clone', x: 600, y: GROUND_Y - FIGHTER_HEIGHT, vx: 0, vy: 0,
+    id: 2, name: 'Iori', x: 550, y: GROUND_Y - FIGHTER_HEIGHT, vx: 0, vy: 0,
     hp: MAX_HP, maxHp: MAX_HP, energy: 0, maxEnergy: 100,
     direction: Direction.LEFT, state: ActionState.IDLE, stateTimer: 0,
     hitbox: { x: 0, y: 0, width: FIGHTER_WIDTH, height: FIGHTER_HEIGHT },
     attackBox: null, isGrounded: true, color: P2_COLOR
   });
+
+  const cameraRef = useRef<CameraState>({ x: 0, y: 0, zoom: 1, shake: 0 });
 
   const particlesRef = useRef<Particle[]>([]);
   const keysRef = useRef<{ [key: string]: boolean }>({});
@@ -70,32 +72,67 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ status, onGameOver, setHealth, 
     );
   };
 
-  const spawnParticles = (x: number, y: number, color: string, count: number = 5, type: 'hit' | 'dust' = 'hit') => {
+  const spawnParticles = (x: number, y: number, color: string, count: number = 5, type: 'hit' | 'dust' | 'fire' = 'hit') => {
     for (let i = 0; i < count; i++) {
       particlesRef.current.push({
         x, y,
-        vx: (Math.random() - 0.5) * (type === 'hit' ? 20 : 5),
-        vy: (Math.random() - 0.5) * (type === 'hit' ? 20 : 5),
+        vx: (Math.random() - 0.5) * (type === 'hit' ? 20 : type === 'fire' ? 5 : 5),
+        vy: (Math.random() - 0.5) * (type === 'hit' ? 20 : type === 'fire' ? -5 : 5),
         life: 20 + Math.random() * 15,
-        color: type === 'hit' ? (Math.random() > 0.5 ? '#ffff00' : '#ffaa00') : '#aaaaaa',
-        size: Math.random() * (type === 'hit' ? 6 : 3) + 2
+        color: type === 'hit' ? '#ffff00' : type === 'fire' ? '#ef4444' : '#aaaaaa',
+        size: Math.random() * (type === 'hit' ? 8 : 4) + 2
       });
     }
   };
 
+  const updateCamera = () => {
+    const p1 = playerRef.current;
+    const p2 = enemyRef.current;
+    const cam = cameraRef.current;
+
+    // Midpoint
+    const midX = (p1.x + p2.x + FIGHTER_WIDTH) / 2;
+    const midY = (p1.y + p2.y + FIGHTER_HEIGHT) / 2;
+
+    // Distance for zoom
+    const dist = Math.abs(p1.x - p2.x);
+    let targetZoom = 1.0;
+    if (dist < 200) targetZoom = 1.3;
+    else if (dist > 500) targetZoom = 0.9;
+    else targetZoom = 1.1;
+
+    // Smooth transition
+    cam.zoom += (targetZoom - cam.zoom) * 0.05;
+    
+    // Clamp zoom
+    cam.zoom = Math.max(0.8, Math.min(1.4, cam.zoom));
+
+    // Target position (Center on midpoint, but don't go out of bounds)
+    const targetX = midX - (CANVAS_WIDTH / 2) / cam.zoom;
+    const targetY = midY - (CANVAS_HEIGHT / 2) / cam.zoom - 50; // Look slightly up
+
+    cam.x += (targetX - cam.x) * 0.1;
+    cam.y += (targetY - cam.y) * 0.1;
+
+    // Shake decay
+    if (cam.shake > 0) cam.shake *= 0.8;
+    if (cam.shake < 0.5) cam.shake = 0;
+  };
+
   const resetGame = () => {
     playerRef.current.hp = MAX_HP;
-    playerRef.current.x = 100;
+    playerRef.current.x = 150;
     playerRef.current.state = ActionState.IDLE;
     playerRef.current.direction = Direction.RIGHT;
     
     enemyRef.current.hp = MAX_HP;
-    enemyRef.current.x = 600;
+    enemyRef.current.x = 550;
     enemyRef.current.state = ActionState.IDLE;
     enemyRef.current.direction = Direction.LEFT;
 
     gameTimeRef.current = 99;
     isGameOver.current = false;
+    cameraRef.current = { x: 0, y: 0, zoom: 1, shake: 0 };
     statsRef.current = { hitsLanded: 0, damageDealt: 0, specialMovesUsed: 0, blocks: 0, timeLeft: 0, result: 'DRAW' };
     setHealth(MAX_HP, MAX_HP);
   };
@@ -164,7 +201,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ status, onGameOver, setHealth, 
       if (p2.x > p1.x) p2.direction = Direction.LEFT;
       else p2.direction = Direction.RIGHT;
 
-      if (dist < 80 && isFacing) {
+      if (dist < 90 && isFacing) {
         if (Math.random() < 0.05) {
           p2.state = ActionState.ATTACK_LIGHT;
           p2.stateTimer = 20;
@@ -181,7 +218,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ status, onGameOver, setHealth, 
            p2.state = ActionState.IDLE;
         }
       } else {
-        p2.vx = p2.direction * (MOVE_SPEED * 0.8); // Aggressive approach
+        p2.vx = p2.direction * (MOVE_SPEED * 0.8);
         p2.state = ActionState.WALK;
       }
     }
@@ -197,13 +234,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ status, onGameOver, setHealth, 
         p.vy = 0;
         p.isGrounded = true;
         if (p.state === ActionState.JUMP) p.state = ActionState.IDLE;
-        
-        // Landing dust
-        if (p.vy > 5) spawnParticles(p.x + FIGHTER_WIDTH/2, GROUND_Y, '#888', 3, 'dust');
       }
 
-      if (p.x < 0) p.x = 0;
-      if (p.x + FIGHTER_WIDTH > CANVAS_WIDTH) p.x = CANVAS_WIDTH - FIGHTER_WIDTH;
+      // Walls
+      if (p.x < -100) p.x = -100;
+      if (p.x + FIGHTER_WIDTH > CANVAS_WIDTH + 100) p.x = CANVAS_WIDTH + 100 - FIGHTER_WIDTH;
 
       p.hitbox = { x: p.x, y: p.y, width: FIGHTER_WIDTH, height: FIGHTER_HEIGHT };
     });
@@ -217,7 +252,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ status, onGameOver, setHealth, 
       }
     }
 
-    // Attacks
+    // Attacks & Hits
     [p1, p2].forEach(attacker => {
       const defender = attacker.id === 1 ? p2 : p1;
       if ((attacker.state === ActionState.ATTACK_LIGHT || attacker.state === ActionState.ATTACK_HEAVY)) {
@@ -229,7 +264,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ status, onGameOver, setHealth, 
         if (currentFrame >= startup && currentFrame < startup + active && !attacker.attackBox) {
           const data = ATTACK_DATA[attacker.state];
           const atkX = attacker.direction === Direction.RIGHT 
-            ? attacker.x + FIGHTER_WIDTH - 20 // Overlap slightly
+            ? attacker.x + FIGHTER_WIDTH - 20
             : attacker.x - data.width + 20;
           
           attacker.attackBox = { x: atkX, y: attacker.y + data.yOffset, width: data.width, height: data.height };
@@ -237,9 +272,15 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ status, onGameOver, setHealth, 
           if (checkCollision(attacker.attackBox, defender.hitbox) && defender.state !== ActionState.HIT && defender.state !== ActionState.DEAD) {
              defender.hp -= data.damage;
              defender.state = ActionState.HIT;
-             defender.stateTimer = 15;
-             defender.vx = attacker.direction * 8; // Knockback
-             spawnParticles(defender.x + FIGHTER_WIDTH/2, defender.y + 40, '#fff', 12, 'hit');
+             defender.stateTimer = 18;
+             defender.vx = attacker.direction * 10;
+             cameraRef.current.shake = 15; // Screen shake
+             
+             spawnParticles(defender.x + FIGHTER_WIDTH/2, defender.y + 40, '#fff', 15, 'hit');
+             if (attacker.state === ActionState.ATTACK_HEAVY) {
+                spawnParticles(defender.x + FIGHTER_WIDTH/2, defender.y + 40, '#f59e0b', 10, 'fire');
+             }
+
              if (attacker.id === 1) {
                 statsRef.current.hitsLanded++;
                 statsRef.current.damageDealt += data.damage;
@@ -256,6 +297,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ status, onGameOver, setHealth, 
 
     particlesRef.current = particlesRef.current.filter(p => p.life > 0);
     particlesRef.current.forEach(p => { p.x += p.vx; p.y += p.vy; p.life--; });
+
+    updateCamera();
 
     if (frameCountRef.current % 5 === 0) setHealth(p1.hp, p2.hp);
     frameCountRef.current++;
@@ -274,380 +317,362 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ status, onGameOver, setHealth, 
     onGameOver(statsRef.current);
   };
 
-  // --- RENDERING SYSTEM ---
+  // --- HIGH FIDELITY RENDERER ---
 
-  const drawBackground = (ctx: CanvasRenderingContext2D) => {
-    // Sky
-    const sky = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
-    sky.addColorStop(0, '#0a0a1a');
-    sky.addColorStop(1, '#2d2d5a');
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, CANVAS_WIDTH, GROUND_Y);
-
-    // Moon
-    ctx.fillStyle = '#fffce6';
-    ctx.beginPath();
-    ctx.arc(120, 90, 45, 0, Math.PI * 2);
-    ctx.fill();
-    // Moon crater detail
-    ctx.fillStyle = '#eeeacd';
-    ctx.beginPath(); ctx.arc(140, 80, 8, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(110, 100, 12, 0, Math.PI*2); ctx.fill();
-
-    // City Layer 1 (Back)
-    CITY_BUILDINGS.forEach((b, i) => {
-        ctx.fillStyle = i % 2 === 0 ? '#111122' : '#16162e';
-        const h = b.h * 0.8;
-        const x = (b.x - playerRef.current.x * 0.1) % (CANVAS_WIDTH + 200) - 100;
-        ctx.fillRect(x, GROUND_Y - h, b.w, h);
-    });
-
-    // City Layer 2 (Front)
-    CITY_BUILDINGS.forEach((b, i) => {
-        ctx.fillStyle = b.color;
-        const x = (b.x - playerRef.current.x * 0.3) % (CANVAS_WIDTH + 200) - 100;
-        ctx.fillRect(x, GROUND_Y - b.h, b.w, b.h);
-        
-        // Windows
-        ctx.fillStyle = '#ffeb3b'; 
-        ctx.globalAlpha = 0.6;
-        for(let wy = GROUND_Y - b.h + 10; wy < GROUND_Y - 10; wy += 20) {
-            for(let wx = x + 5; wx < x + b.w - 5; wx += 15) {
-                if ((i + Math.floor(wx) + wy) % 5 !== 0) { 
-                    ctx.fillRect(wx, wy, 8, 12);
-                }
-            }
-        }
-        ctx.globalAlpha = 1.0;
-    });
-
-    // Floor
-    const floorGrad = ctx.createLinearGradient(0, GROUND_Y, 0, CANVAS_HEIGHT);
-    floorGrad.addColorStop(0, '#1a1a1a');
-    floorGrad.addColorStop(1, '#000000');
-    ctx.fillStyle = floorGrad;
-    ctx.fillRect(0, GROUND_Y, CANVAS_WIDTH, CANVAS_HEIGHT - GROUND_Y);
-  };
-
-  // Helper for drawing organic shapes
-  const drawPath = (ctx: CanvasRenderingContext2D, points: number[][], color: string, close = true) => {
-      ctx.fillStyle = color;
+  // Helper: Draw a shape with a gradient (Light to Dark)
+  const drawBodyPart = (ctx: CanvasRenderingContext2D, points: number[][], baseColor: string, darkColor: string, xOff: number = 0, yOff: number = 0) => {
+      ctx.save();
       ctx.beginPath();
-      ctx.moveTo(points[0][0], points[0][1]);
+      ctx.moveTo(points[0][0] + xOff, points[0][1] + yOff);
       for(let i=1; i<points.length; i++) {
-          ctx.lineTo(points[i][0], points[i][1]);
+          ctx.lineTo(points[i][0] + xOff, points[i][1] + yOff);
       }
-      if(close) ctx.closePath();
+      ctx.closePath();
+
+      // Create Gradient from top-left to bottom-right bounds
+      // A simple linear gradient usually works best for body parts
+      const grd = ctx.createLinearGradient(xOff, yOff, xOff + 20, yOff + 40);
+      grd.addColorStop(0, baseColor);
+      grd.addColorStop(1, darkColor);
+      ctx.fillStyle = grd;
       ctx.fill();
+      
+      // Outline
+      ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.restore();
   };
 
-  const drawKyo = (ctx: CanvasRenderingContext2D, x: number, y: number, t: number, state: ActionState, direction: number, isP1: boolean) => {
-    const breathe = Math.sin(t * 0.1) * 2;
-    const isAttacking = state === ActionState.ATTACK_LIGHT || state === ActionState.ATTACK_HEAVY;
+  const drawKyoHighDef = (ctx: CanvasRenderingContext2D, x: number, y: number, t: number, state: ActionState, direction: number) => {
     const isHit = state === ActionState.HIT;
-    
-    // Scale X for direction
-    ctx.save();
-    ctx.translate(x + FIGHTER_WIDTH/2, y + FIGHTER_HEIGHT); // Pivot at feet
-    ctx.scale(direction, 1);
-
-    // --- LEGS ---
-    const stanceW = isAttacking ? 25 : 20;
-    // Back Leg
-    ctx.fillStyle = '#1e3a8a'; // Dark Blue Jeans
-    ctx.beginPath();
-    ctx.moveTo(-5, -50); // Hip
-    ctx.lineTo(-stanceW - 10, 0); // Foot
-    ctx.lineTo(-stanceW, 0); 
-    ctx.lineTo(5, -50);
-    ctx.fill();
-    // Shoe
-    ctx.fillStyle = '#333';
-    ctx.fillRect(-stanceW - 12, -5, 18, 5);
-
-    // Front Leg
-    ctx.fillStyle = '#1e3a8a';
-    ctx.beginPath();
-    ctx.moveTo(5, -50); // Hip
-    ctx.lineTo(stanceW + 5, 0); // Foot
-    ctx.lineTo(stanceW + 15, 0);
-    ctx.lineTo(15, -50);
-    ctx.fill();
-    // Shoe
-    ctx.fillStyle = '#333';
-    ctx.fillRect(stanceW + 3, -5, 18, 5);
-
-    // --- TORSO ---
-    const torsoY = isHit ? -55 : -90 + breathe;
-    const torsoRot = isHit ? -0.2 : (isAttacking ? 0.2 : 0);
-    
-    ctx.rotate(torsoRot);
-    
-    // White T-shirt
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(-15, torsoY, 30, 45);
-    
-    // Jacket (Open)
-    ctx.fillStyle = '#111'; // Black jacket
-    ctx.beginPath();
-    ctx.moveTo(-16, torsoY);
-    ctx.lineTo(-16, torsoY + 45);
-    ctx.lineTo(-8, torsoY + 45);
-    ctx.lineTo(-8, torsoY); // Left flap
-    ctx.fill();
-    
-    ctx.beginPath();
-    ctx.moveTo(16, torsoY);
-    ctx.lineTo(16, torsoY + 45);
-    ctx.lineTo(8, torsoY + 45);
-    ctx.lineTo(8, torsoY); // Right flap
-    ctx.fill();
-
-    // Collar
-    ctx.fillStyle = '#222';
-    ctx.beginPath();
-    ctx.moveTo(-16, torsoY);
-    ctx.lineTo(-20, torsoY - 5);
-    ctx.lineTo(20, torsoY - 5);
-    ctx.lineTo(16, torsoY);
-    ctx.fill();
-
-    // --- HEAD ---
-    const headY = torsoY - 18;
-    ctx.fillStyle = '#ffdbac'; // Skin
-    ctx.beginPath();
-    ctx.arc(0, headY, 14, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Hair (Spiky Brown)
-    ctx.fillStyle = '#3e2723';
-    ctx.beginPath();
-    ctx.moveTo(-14, headY - 5);
-    ctx.lineTo(-18, headY - 15); // Spike 1
-    ctx.lineTo(-5, headY - 10);
-    ctx.lineTo(0, headY - 20); // Spike 2
-    ctx.lineTo(5, headY - 10);
-    ctx.lineTo(18, headY - 15); // Spike 3
-    ctx.lineTo(14, headY - 5);
-    ctx.fill();
-    
-    // Headband
-    ctx.fillStyle = '#eee';
-    ctx.fillRect(-13, headY - 12, 26, 4);
-    // Tails
-    ctx.beginPath();
-    ctx.moveTo(12, headY - 10);
-    ctx.quadraticCurveTo(25, headY - 5 + breathe, 28, headY + 5 + breathe);
-    ctx.lineTo(24, headY + 5 + breathe);
-    ctx.quadraticCurveTo(20, headY - 5, 12, headY - 8);
-    ctx.fill();
-
-    // --- ARMS ---
-    // Back Arm
-    ctx.fillStyle = '#111'; // Sleeve
-    ctx.save();
-    ctx.translate(10, torsoY + 5);
-    ctx.rotate(state === ActionState.BLOCK ? -1.5 : (isAttacking ? -0.5 : 0.5 + Math.sin(t*0.1)*0.1));
-    ctx.fillRect(-5, 0, 10, 20);
-    // Forearm
-    ctx.fillStyle = '#ffdbac';
-    ctx.fillRect(-4, 20, 8, 15);
-    // Glove
-    ctx.fillStyle = '#3e2723';
-    ctx.fillRect(-5, 35, 12, 12);
-    ctx.restore();
-
-    // Front Arm (Attack Arm)
-    ctx.save();
-    ctx.translate(-12, torsoY + 5);
-    
-    let armRot = -0.5 + Math.cos(t*0.1)*0.1; // Guard stance
-    let extend = 0;
-    
-    if (state === ActionState.ATTACK_LIGHT) {
-        armRot = -1.5;
-        extend = 20;
-    } else if (state === ActionState.ATTACK_HEAVY) {
-        armRot = -1.2; // Uppercut angle
-        extend = 15;
-    }
-
-    ctx.rotate(armRot);
-    ctx.fillStyle = '#111'; // Sleeve
-    ctx.fillRect(-6, 0, 12, 20);
-    // Forearm
-    ctx.fillStyle = '#ffdbac';
-    ctx.fillRect(-5, 20 + extend, 10, 15);
-    // Glove
-    ctx.fillStyle = '#3e2723';
-    ctx.fillRect(-6, 35 + extend, 14, 14); // Fist
-
-    // Fire Effect
-    if (isAttacking) {
-        ctx.fillStyle = 'rgba(255, 100, 0, 0.7)';
-        ctx.beginPath();
-        ctx.arc(0, 45 + extend, 25, 0, Math.PI*2);
-        ctx.fill();
-        ctx.fillStyle = 'rgba(255, 255, 0, 0.5)';
-        ctx.beginPath();
-        ctx.arc(0, 45 + extend, 15, 0, Math.PI*2);
-        ctx.fill();
-    }
-    
-    ctx.restore();
-    ctx.restore();
-  };
-
-  const drawIori = (ctx: CanvasRenderingContext2D, x: number, y: number, t: number, state: ActionState, direction: number, isP1: boolean) => {
-    const breathe = Math.sin(t * 0.08) * 3;
     const isAttacking = state === ActionState.ATTACK_LIGHT || state === ActionState.ATTACK_HEAVY;
-    const isHit = state === ActionState.HIT;
-
+    const breathe = Math.sin(t * 0.1) * 1.5;
+    
     ctx.save();
     ctx.translate(x + FIGHTER_WIDTH/2, y + FIGHTER_HEIGHT);
     ctx.scale(direction, 1);
 
-    // --- LEGS (Bondage Pants - Connected knees visually) ---
-    // They usually look like one mass in sprites until stepping
-    ctx.fillStyle = '#b91c1c'; // Red pants
-    
-    // Back leg
-    ctx.beginPath();
-    ctx.moveTo(-5, -55);
-    ctx.lineTo(-25, 0); // Wide stance
-    ctx.lineTo(-10, 0);
-    ctx.lineTo(0, -55);
-    ctx.fill();
-    
-    // Front leg
-    ctx.beginPath();
-    ctx.moveTo(5, -55);
-    ctx.lineTo(35, 0);
-    ctx.lineTo(15, 0);
-    ctx.lineTo(0, -55);
-    ctx.fill();
-    
-    // Bondage strap between legs
-    ctx.strokeStyle = '#7f1d1d';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(-15, -25);
-    ctx.quadraticCurveTo(0, -15, 20, -25);
-    ctx.stroke();
+    // Dynamic lean
+    const lean = isHit ? -0.4 : (isAttacking ? 0.3 : 0);
+    ctx.rotate(lean);
 
+    // --- LEGS ---
+    // Back Leg
+    drawBodyPart(ctx, [[-5, -50], [-25, 0], [-10, 0], [5, -50]], '#2563eb', '#1e3a8a');
+    // Front Leg
+    drawBodyPart(ctx, [[5, -50], [25, 0], [35, 0], [15, -50]], '#3b82f6', '#1d4ed8');
+    
     // Shoes
     ctx.fillStyle = '#333';
     ctx.fillRect(-28, -5, 20, 5);
-    ctx.fillRect(15, -5, 20, 5);
-
-    // --- TORSO (Slouching heavily) ---
-    const torsoY = isHit ? -55 : -70 + breathe; // Lower than Kyo
-    const lean = 0.4; // Forward lean
-    
-    ctx.rotate(lean);
-    
-    // White Shirt (Long tails)
+    ctx.fillRect(23, -5, 20, 5);
+    // Shoe detail
     ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.moveTo(-15, torsoY); 
-    ctx.lineTo(-15, torsoY + 60); // Long tail back
-    ctx.lineTo(15, torsoY + 50);
-    ctx.lineTo(15, torsoY);
-    ctx.fill();
+    ctx.fillRect(-25, -2, 10, 2);
+    ctx.fillRect(26, -2, 10, 2);
 
-    // --- HEAD (Buried in shoulders) ---
-    const headY = torsoY - 12;
-    ctx.fillStyle = '#ffdbac';
-    ctx.beginPath();
-    ctx.arc(5, headY, 13, 0, Math.PI*2);
-    ctx.fill();
+    // --- TORSO ---
+    const torsoY = -95 + breathe + (isHit ? 10 : 0);
     
-    // Hair (Red, covering face)
-    ctx.fillStyle = '#ef4444'; // Bright red
-    ctx.beginPath();
-    ctx.moveTo(-10, headY - 10);
-    ctx.quadraticCurveTo(0, headY - 20, 15, headY - 5); // Top
-    ctx.quadraticCurveTo(25, headY + 10, 20, headY + 20); // Bangs covering front
-    ctx.lineTo(5, headY + 5);
-    ctx.lineTo(-10, headY + 5); // Back
-    ctx.fill();
+    // White Shirt (Base)
+    drawBodyPart(ctx, [[-15, torsoY], [15, torsoY], [12, torsoY+50], [-12, torsoY+50]], '#f3f4f6', '#d1d5db');
     
-    // Choker
-    ctx.fillStyle = '#111';
-    ctx.fillRect(-5, headY + 10, 12, 4);
+    // Jacket (Left/Right Panels)
+    // Left
+    drawBodyPart(ctx, [[-18, torsoY-2], [-10, torsoY+10], [-10, torsoY+50], [-20, torsoY+48]], '#1f2937', '#000000');
+    // Right
+    drawBodyPart(ctx, [[18, torsoY-2], [10, torsoY+10], [10, torsoY+50], [20, torsoY+48]], '#374151', '#111827');
+    
+    // Collar (High)
+    drawBodyPart(ctx, [[-18, torsoY], [-22, torsoY-8], [22, torsoY-8], [18, torsoY]], '#111827', '#000000');
 
-    // --- ARMS (Claws hanging low) ---
-    
-    // Front Arm
+    // --- ARMS ---
+    // Back Arm
     ctx.save();
-    ctx.translate(0, torsoY + 5);
+    ctx.translate(15, torsoY + 5);
+    const backArmRot = isAttacking ? -1 : Math.sin(t*0.1) * 0.1;
+    ctx.rotate(backArmRot);
+    drawBodyPart(ctx, [[-6,0], [6,0], [5,25], [-5,25]], '#1f2937', '#000'); // Sleeve
+    drawBodyPart(ctx, [[-5,25], [5,25], [4,45], [-4,45]], '#fdba74', '#fb923c', 0, 0); // Forearm
+    ctx.fillStyle = '#4b2518'; ctx.fillRect(-5, 45, 10, 10); // Glove
+    ctx.restore();
+
+    // --- HEAD ---
+    const headY = torsoY - 22;
+    // Neck
+    ctx.fillStyle = '#fdba74';
+    ctx.fillRect(-6, headY+10, 12, 10);
     
-    let armRot = 0.2 + Math.sin(t*0.1)*0.1; // Hanging
-    let armLen = 35;
-
-    if (state === ActionState.ATTACK_LIGHT) {
-        armRot = -1.2; // Swipe up
-    } else if (state === ActionState.ATTACK_HEAVY) {
-        armRot = -1.8; // High claw
+    // Face shape
+    drawBodyPart(ctx, [[-10, headY], [10, headY], [8, headY+18], [0, headY+22], [-8, headY+18]], '#ffedd5', '#fdba74');
+    
+    // Face Features (Eyes)
+    ctx.fillStyle = '#000';
+    if (!isHit) {
+        ctx.fillRect(2, headY+8, 4, 2); // Right eye
+        ctx.fillRect(-2, headY+8, -4, 2); // Left eye
+        // Eyebrows
+        ctx.fillRect(2, headY+6, 5, 1); 
+        ctx.fillRect(-2, headY+6, -5, 1); 
+    } else {
+        ctx.fillText(">", 2, headY+10);
+        ctx.fillText("<", -6, headY+10);
     }
-
-    ctx.rotate(armRot);
-    ctx.fillStyle = '#fff'; // Sleeve
-    ctx.fillRect(-5, 0, 10, 25);
-    ctx.fillStyle = '#ffdbac'; // Skin
-    ctx.fillRect(-4, 25, 8, armLen); // Long arms
-
-    // Hand/Claw
-    ctx.fillStyle = '#ffdbac';
+    
+    // Hair (Spiky Brown Gradient)
+    const hairGrad = ctx.createLinearGradient(0, headY-20, 0, headY);
+    hairGrad.addColorStop(0, '#78350f');
+    hairGrad.addColorStop(1, '#451a03');
+    ctx.fillStyle = hairGrad;
     ctx.beginPath();
-    ctx.moveTo(-5, 25 + armLen);
-    ctx.lineTo(0, 25 + armLen + 10); // Pointy
-    ctx.lineTo(5, 25 + armLen);
+    ctx.moveTo(-12, headY+5);
+    ctx.lineTo(-14, headY-10); // Side
+    ctx.lineTo(-8, headY-18); // Top L
+    ctx.lineTo(0, headY-22); // Top Mid
+    ctx.lineTo(8, headY-18); // Top R
+    ctx.lineTo(14, headY-10); // Side
+    ctx.lineTo(12, headY+5);
+    ctx.lineTo(0, headY-5); // Bangs
     ctx.fill();
 
-    // Purple Fire
-    if (isAttacking) {
-        ctx.fillStyle = 'rgba(147, 51, 234, 0.7)'; // Purple
-        ctx.beginPath();
-        ctx.arc(0, 35 + armLen, 30, 0, Math.PI*2);
-        ctx.fill();
-        ctx.fillStyle = 'rgba(200, 150, 255, 0.5)';
-        ctx.beginPath();
-        ctx.arc(0, 35 + armLen, 15, 0, Math.PI*2);
-        ctx.fill();
+    // White Headband
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(-12, headY-8, 24, 4);
+    // Headband Knot (Dynamic)
+    const knotX = -12;
+    const knotY = headY - 6;
+    ctx.beginPath();
+    ctx.moveTo(knotX, knotY);
+    ctx.quadraticCurveTo(knotX - 10, knotY + breathe * 2, knotX - 15, knotY + 10);
+    ctx.lineTo(knotX - 5, knotY + 10);
+    ctx.fill();
+
+    // --- FRONT ARM (Attack Arm) ---
+    ctx.save();
+    ctx.translate(-15, torsoY + 5);
+    let frontArmRot = 0.5; // Guard
+    let extend = 0;
+    
+    if (state === ActionState.ATTACK_LIGHT) {
+        frontArmRot = -1.5; extend = 25;
+    } else if (state === ActionState.ATTACK_HEAVY) {
+        frontArmRot = -1.2; extend = 15; // Upper
     }
     
+    ctx.rotate(frontArmRot);
+    drawBodyPart(ctx, [[-7,0], [7,0], [6,25], [-6,25]], '#374151', '#111827'); // Sleeve
+    drawBodyPart(ctx, [[-5,25], [5,25], [4,45+extend], [-4,45+extend]], '#fdba74', '#fb923c', 0, 0); // Forearm
+    // Glove
+    ctx.fillStyle = '#4b2518'; 
+    ctx.beginPath(); ctx.arc(0, 50+extend, 8, 0, Math.PI*2); ctx.fill();
+    
+    // FIRE EFFECT
+    if (isAttacking) {
+        const fireGrad = ctx.createRadialGradient(0, 50+extend, 5, 0, 50+extend, 30);
+        fireGrad.addColorStop(0, '#fff');
+        fireGrad.addColorStop(0.3, '#facc15');
+        fireGrad.addColorStop(0.7, '#ef4444');
+        fireGrad.addColorStop(1, 'rgba(239, 68, 68, 0)');
+        ctx.fillStyle = fireGrad;
+        ctx.beginPath(); ctx.arc(0, 50+extend, 35, 0, Math.PI*2); ctx.fill();
+    }
     ctx.restore();
 
     ctx.restore();
   };
 
+  const drawIoriHighDef = (ctx: CanvasRenderingContext2D, x: number, y: number, t: number, state: ActionState, direction: number) => {
+    const isHit = state === ActionState.HIT;
+    const isAttacking = state === ActionState.ATTACK_LIGHT || state === ActionState.ATTACK_HEAVY;
+    const breathe = Math.sin(t * 0.08) * 2;
+    
+    ctx.save();
+    ctx.translate(x + FIGHTER_WIDTH/2, y + FIGHTER_HEIGHT);
+    ctx.scale(direction, 1);
+    
+    const lean = 0.5 + (isHit ? -0.5 : 0);
+    ctx.rotate(lean);
+
+    // --- LEGS ---
+    // Bondage Pants (Red)
+    drawBodyPart(ctx, [[-10, -50], [-30, 0], [-10, 0], [0, -50]], '#ef4444', '#b91c1c'); // Back
+    drawBodyPart(ctx, [[5, -50], [30, 0], [10, 0], [15, -50]], '#f87171', '#dc2626'); // Front
+    
+    // The Strap
+    ctx.strokeStyle = '#7f1d1d';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(-15, -30);
+    ctx.quadraticCurveTo(0 + Math.sin(t*0.2)*5, -10, 20, -30);
+    ctx.stroke();
+
+    // Shoes
+    ctx.fillStyle = '#111';
+    ctx.fillRect(-32, -5, 22, 5);
+    ctx.fillRect(10, -5, 22, 5);
+
+    // --- TORSO ---
+    const torsoY = -75 + breathe;
+    
+    // Long White Shirt (Tail logic)
+    // Back Tail
+    ctx.fillStyle = '#e5e7eb';
+    ctx.beginPath();
+    ctx.moveTo(-15, torsoY + 40);
+    ctx.quadraticCurveTo(-25, torsoY + 80 + breathe, -5, torsoY + 70);
+    ctx.fill();
+    
+    // Main Torso
+    drawBodyPart(ctx, [[-16, torsoY], [16, torsoY], [14, torsoY+45], [-14, torsoY+45]], '#ffffff', '#d1d5db');
+    
+    // --- HEAD ---
+    const headY = torsoY - 18;
+    // Choker
+    ctx.fillStyle = '#000';
+    ctx.fillRect(-8, headY+12, 16, 5);
+    
+    // Face
+    drawBodyPart(ctx, [[-10, headY], [10, headY], [8, headY+18], [0, headY+25], [-8, headY+18]], '#ffedd5', '#fdba74');
+    
+    // Iconic Red Hair
+    const hairGrad = ctx.createLinearGradient(0, headY-10, 0, headY+20);
+    hairGrad.addColorStop(0, '#ef4444');
+    hairGrad.addColorStop(1, '#991b1b');
+    ctx.fillStyle = hairGrad;
+    ctx.beginPath();
+    ctx.moveTo(-12, headY-5);
+    ctx.quadraticCurveTo(0, headY-25, 18, headY-5); // Top
+    ctx.quadraticCurveTo(28, headY+15, 22, headY+25); // Bangs covering eye
+    ctx.lineTo(8, headY+10);
+    ctx.lineTo(-12, headY+10);
+    ctx.fill();
+
+    // Visible Eye (Left side only)
+    if (!isHit) {
+        ctx.fillStyle = '#000';
+        ctx.fillRect(-4, headY+8, 4, 2);
+    }
+
+    // --- ARMS ---
+    // Front Arm (The Claw)
+    ctx.save();
+    ctx.translate(-5, torsoY + 5);
+    let armRot = 0.2 + Math.sin(t*0.1)*0.05;
+    if (isAttacking) armRot = -1.5;
+    ctx.rotate(armRot);
+    
+    drawBodyPart(ctx, [[-6,0], [6,0], [5,25], [-5,25]], '#fff', '#e5e7eb'); // Sleeve
+    drawBodyPart(ctx, [[-5,25], [5,25], [4,50], [-4,50]], '#ffedd5', '#fdba74', 0, 0); // Arm
+    
+    // Claw Hand
+    ctx.fillStyle = '#ffedd5';
+    ctx.beginPath();
+    ctx.moveTo(-6, 50);
+    ctx.lineTo(0, 65); // Sharp finger
+    ctx.lineTo(6, 50);
+    ctx.fill();
+
+    // PURPLE FIRE
+    if (isAttacking) {
+        const fireGrad = ctx.createRadialGradient(0, 60, 5, 0, 60, 35);
+        fireGrad.addColorStop(0, '#fff');
+        fireGrad.addColorStop(0.3, '#d8b4fe');
+        fireGrad.addColorStop(0.6, '#9333ea');
+        fireGrad.addColorStop(1, 'rgba(147, 51, 234, 0)');
+        ctx.fillStyle = fireGrad;
+        ctx.beginPath(); ctx.arc(0, 60, 40, 0, Math.PI*2); ctx.fill();
+    }
+
+    ctx.restore();
+    ctx.restore();
+  };
+
   const draw = (ctx: CanvasRenderingContext2D) => {
-    drawBackground(ctx);
+    const cam = cameraRef.current;
+    const shakeX = (Math.random() - 0.5) * cam.shake;
+    const shakeY = (Math.random() - 0.5) * cam.shake;
+
+    ctx.save();
+    // Apply Camera
+    ctx.translate(CANVAS_WIDTH/2 + shakeX, CANVAS_HEIGHT/2 + shakeY);
+    ctx.scale(cam.zoom, cam.zoom);
+    ctx.translate(-cam.x - CANVAS_WIDTH/2, -cam.y - CANVAS_HEIGHT/2);
+
+    // --- BACKGROUND ---
+    // Sky
+    const sky = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+    sky.addColorStop(0, '#020617');
+    sky.addColorStop(1, '#1e1b4b');
+    ctx.fillStyle = sky;
+    ctx.fillRect(cam.x, cam.y - 100, CANVAS_WIDTH / cam.zoom + 200, CANVAS_HEIGHT / cam.zoom + 200);
+
+    // Moon
+    ctx.shadowBlur = 50;
+    ctx.shadowColor = '#fff';
+    ctx.fillStyle = '#fffce6';
+    ctx.beginPath(); ctx.arc(150, 80, 50, 0, Math.PI*2); ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // City Layers (Parallax)
+    CITY_BUILDINGS.forEach((b, i) => {
+        ctx.fillStyle = i % 2 === 0 ? '#0f172a' : '#1e293b';
+        const h = b.h;
+        const x = (b.x - cam.x * 0.2) % (CANVAS_WIDTH + 400) - 200;
+        ctx.fillRect(x, GROUND_Y - h, b.w, h);
+        
+        // Lit Windows
+        ctx.fillStyle = '#f59e0b'; 
+        for(let wy = GROUND_Y - b.h + 10; wy < GROUND_Y - 10; wy += 30) {
+            for(let wx = x + 5; wx < x + b.w - 5; wx += 15) {
+                if (Math.random() > 0.4) ctx.fillRect(wx, wy, 6, 10);
+            }
+        }
+    });
+
+    // Floor
+    const floorGrad = ctx.createLinearGradient(0, GROUND_Y, 0, CANVAS_HEIGHT);
+    floorGrad.addColorStop(0, '#111');
+    floorGrad.addColorStop(1, '#000');
+    ctx.fillStyle = floorGrad;
+    ctx.fillRect(cam.x - 100, GROUND_Y, CANVAS_WIDTH / cam.zoom + 400, CANVAS_HEIGHT - GROUND_Y + 100);
 
     // Shadows
     [enemyRef.current, playerRef.current].forEach(f => {
-       ctx.fillStyle = 'rgba(0,0,0,0.5)';
+       ctx.fillStyle = 'rgba(0,0,0,0.6)';
        ctx.beginPath();
        ctx.ellipse(f.x + FIGHTER_WIDTH/2, GROUND_Y - 5, 30, 8, 0, 0, Math.PI*2);
        ctx.fill();
     });
 
+    // --- CHARACTERS ---
     const t = frameCountRef.current;
     
-    // Draw Enemy (Iori Style)
-    drawIori(ctx, enemyRef.current.x, enemyRef.current.y, t, enemyRef.current.state, enemyRef.current.direction, false);
+    // Draw Enemy (Iori)
+    drawIoriHighDef(ctx, enemyRef.current.x, enemyRef.current.y, t, enemyRef.current.state, enemyRef.current.direction);
     
-    // Draw Player (Kyo Style)
-    drawKyo(ctx, playerRef.current.x, playerRef.current.y, t, playerRef.current.state, playerRef.current.direction, true);
+    // Draw Player (Kyo)
+    drawKyoHighDef(ctx, playerRef.current.x, playerRef.current.y, t, playerRef.current.state, playerRef.current.direction);
 
-    // Particles
+    // --- PARTICLES ---
     particlesRef.current.forEach(p => {
+      ctx.globalAlpha = p.life / 20;
       ctx.fillStyle = p.color;
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
       ctx.fill();
     });
+    ctx.globalAlpha = 1.0;
+
+    // --- OVERLAY EFFECTS ---
+    // Vignette
+    const grad = ctx.createRadialGradient(cam.x + CANVAS_WIDTH/2, cam.y + CANVAS_HEIGHT/2, 300, cam.x + CANVAS_WIDTH/2, cam.y + CANVAS_HEIGHT/2, 600);
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(1, 'rgba(0,0,0,0.5)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(cam.x, cam.y, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    ctx.restore();
   };
 
   const gameLoop = (time: number) => {
@@ -672,7 +697,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ status, onGameOver, setHealth, 
   }, [status]);
 
   return (
-    <div className="relative border-4 border-gray-800 shadow-2xl rounded-lg overflow-hidden bg-black">
+    <div className="relative border-4 border-gray-800 shadow-2xl rounded-lg overflow-hidden bg-black w-full h-full">
       <canvas
         ref={canvasRef}
         width={CANVAS_WIDTH}
