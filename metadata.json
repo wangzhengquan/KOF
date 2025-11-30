@@ -1,0 +1,5 @@
+{
+  "name": "KOF: AI Edition",
+  "description": "A retro-style 2D fighting game featuring a custom physics engine, dynamic combat system, and AI-powered post-match commentary using Google Gemini.",
+  "requestFramePermissions": []
+}
