@@ -39,6 +39,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ status, onGameOver, setHealth, 
   });
 
   const cameraRef = useRef<CameraState>({ x: 0, y: 0, zoom: 1, shake: 0 });
+  const hitStopRef = useRef<number>(0); // Frames to freeze physics
+  const comboRef = useRef<number>(0);
+  const comboTimerRef = useRef<number>(0);
 
   const particlesRef = useRef<Particle[]>([]);
   const keysRef = useRef<{ [key: string]: boolean }>({});
@@ -133,6 +136,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ status, onGameOver, setHealth, 
     gameTimeRef.current = 99;
     isGameOver.current = false;
     cameraRef.current = { x: 0, y: 0, zoom: 1, shake: 0 };
+    hitStopRef.current = 0;
+    comboRef.current = 0;
+    comboTimerRef.current = 0;
     statsRef.current = { hitsLanded: 0, damageDealt: 0, specialMovesUsed: 0, blocks: 0, timeLeft: 0, result: 'DRAW' };
     setHealth(MAX_HP, MAX_HP);
   };
@@ -140,11 +146,26 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ status, onGameOver, setHealth, 
   const update = (dt: number) => {
     if (status !== GameStatus.PLAYING || isGameOver.current) return;
 
+    // --- HIT STOP LOGIC ---
+    if (hitStopRef.current > 0) {
+      hitStopRef.current--;
+      // During hit stop, update shake but SKIP physics
+      updateCamera();
+      return; 
+    }
+
     if (frameCountRef.current % 60 === 0 && gameTimeRef.current > 0) {
       gameTimeRef.current -= 1;
       setTimer(gameTimeRef.current);
     }
     if (gameTimeRef.current <= 0) handleGameOver();
+
+    // Combo Timer
+    if (comboTimerRef.current > 0) {
+      comboTimerRef.current--;
+    } else {
+      comboRef.current = 0;
+    }
 
     const p1 = playerRef.current;
     const p2 = enemyRef.current;
@@ -274,17 +295,27 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ status, onGameOver, setHealth, 
              defender.state = ActionState.HIT;
              defender.stateTimer = 18;
              defender.vx = attacker.direction * 10;
-             cameraRef.current.shake = 15; // Screen shake
              
+             // HIT STOP & SHAKE
+             hitStopRef.current = data.hitStop; 
+             cameraRef.current.shake = attacker.state === ActionState.ATTACK_HEAVY ? 20 : 10; 
+             
+             // COMBO LOGIC
+             if (attacker.id === 1) {
+                 comboRef.current += 1;
+                 comboTimerRef.current = 60; // 1 second window to continue combo
+                 statsRef.current.hitsLanded++;
+                 statsRef.current.damageDealt += data.damage;
+             } else {
+                // If AI hits player, reset player combo
+                comboRef.current = 0;
+             }
+
              spawnParticles(defender.x + FIGHTER_WIDTH/2, defender.y + 40, '#fff', 15, 'hit');
              if (attacker.state === ActionState.ATTACK_HEAVY) {
                 spawnParticles(defender.x + FIGHTER_WIDTH/2, defender.y + 40, '#f59e0b', 10, 'fire');
              }
 
-             if (attacker.id === 1) {
-                statsRef.current.hitsLanded++;
-                statsRef.current.damageDealt += data.damage;
-             }
              if (defender.hp <= 0) {
                defender.hp = 0;
                defender.state = ActionState.DEAD;
@@ -671,6 +702,32 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ status, onGameOver, setHealth, 
     grad.addColorStop(1, 'rgba(0,0,0,0.5)');
     ctx.fillStyle = grad;
     ctx.fillRect(cam.x, cam.y, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    // --- UI IN WORLD (Combo Counter) ---
+    if (comboRef.current > 1) {
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform for UI
+        ctx.fillStyle = '#fbbf24';
+        ctx.strokeStyle = '#78350f';
+        ctx.lineWidth = 3;
+        ctx.font = 'italic 900 48px "Black Ops One", sans-serif';
+        const text = `${comboRef.current} HITS`;
+        const metrics = ctx.measureText(text);
+        
+        // Pulse effect
+        const scale = 1 + Math.sin(t * 0.2) * 0.1;
+        ctx.translate(100, 150);
+        ctx.scale(scale, scale);
+        
+        ctx.fillText(text, 0, 0);
+        ctx.strokeText(text, 0, 0);
+        
+        ctx.font = 'italic 700 24px sans-serif';
+        ctx.fillStyle = '#fff';
+        ctx.fillText("COMBO", 10, 30);
+        
+        ctx.restore();
+    }
 
     ctx.restore();
   };

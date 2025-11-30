@@ -20,6 +20,7 @@ export const ATTACK_DATA = {
     startup: 5,
     active: 8,
     recovery: 8,
+    hitStop: 8, // Frames to freeze on impact
     width: 80,
     height: 35,
     yOffset: 30,
@@ -30,6 +31,7 @@ export const ATTACK_DATA = {
     startup: 12,
     active: 12,
     recovery: 22,
+    hitStop: 16, // Heavy hits freeze longer
     width: 110,
     height: 60,
     yOffset: 35,
