@@ -38,9 +38,9 @@ const App: React.FC = () => {
   }, []);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 to-black p-4 relative scanlines">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 to-black p-4">
       
-      <div className="relative w-full max-w-[800px] aspect-video">
+      <div className="relative w-full max-w-[800px] aspect-video bg-black shadow-2xl rounded-lg overflow-hidden border-4 border-gray-800">
         <GameCanvas 
           status={status} 
           onGameOver={handleGameOver} 
@@ -89,12 +89,15 @@ const App: React.FC = () => {
 
              <button 
                 onClick={startGame}
-                className="px-8 py-3 bg-white text-black font-bold hover:bg-gray-200 transition-colors arcade-font"
+                className="px-8 py-3 bg-white text-black font-bold hover:bg-gray-200 transition-colors arcade-font pointer-events-auto cursor-pointer"
              >
                 PLAY AGAIN
              </button>
           </div>
         )}
+
+        {/* CRT Scanline Overlay - Placed on top of everything but non-blocking */}
+        <div className="absolute inset-0 scanlines pointer-events-none z-[60]"></div>
       </div>
     </div>
   );
